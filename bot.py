@@ -2,8 +2,10 @@ import re
 import base64
 from telegram import Update
 from telegram.ext import ApplicationBuilder, MessageHandler, filters, ContextTypes
+import os
 
-BOT_TOKEN = "8641591483:AAF92ZTqWbUcWnWfYCKSnodALGEYVNO6EYU"
+
+BOT_TOKEN = os.getenv("BOT_TOKEN")
 OWNER_ID = 8291579707  # তোমার ID (log থেকে দেখলাম)
 
 # 👉 এখানে তোমার real channel ID বসাও

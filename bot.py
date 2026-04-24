@@ -4,7 +4,7 @@ import asyncio
 from collections import deque
 from flask import Flask
 from threading import Thread
-
+import base64
 from telegram import Update
 from telegram.ext import ApplicationBuilder, MessageHandler, filters, ContextTypes
 
@@ -49,7 +49,8 @@ def run_web():
 
 # 🔗 Safelink
 def generate_safelink(url):
-    return f"https://snipzi.blogspot.com/p/safelink-generator.html?url={url}"
+    encoded = base64.b64encode(url.encode()).decode()
+    return f"https://bdtyone.blogspot.com/?url={encoded}"
 
 
 # 🧠 Worker (background sender)

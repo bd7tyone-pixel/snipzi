@@ -1,10 +1,10 @@
 import re
 import os
 import asyncio
-from collections import deque
-from flask import Flask
-from threading import Thread
 import base64
+from collections import deque
+from threading import Thread
+from flask import Flask
 from telegram import Update
 from telegram.ext import ApplicationBuilder, MessageHandler, filters, ContextTypes
 
@@ -29,13 +29,13 @@ TARGET_CHATS = [
     -1003871435498
 ]
 
-POST_DELAY = 60  # seconds gap
+POST_DELAY = 60
 
-# 🔁 Queue system
+# 🔁 Queue
 task_queue = deque()
 channel_index = 0
 
-# 🌐 Flask server (Render fix)
+# 🌐 Flask (keep alive)
 app_flask = Flask(__name__)
 
 @app_flask.route('/')
@@ -53,39 +53,41 @@ def generate_safelink(url):
     return f"https://bdtyone.blogspot.com/?url={encoded}"
 
 
-# 🧠 Worker (background sender)
+# 🧠 Worker
 async def worker(app):
     global channel_index
 
     while True:
-        if task_queue:
-            data = task_queue.popleft()
-
-            chat_id = TARGET_CHATS[channel_index]
-            channel_index = (channel_index + 1) % len(TARGET_CHATS)
-
-            try:
-                if data["photo"]:
-                    await app.bot.send_photo(
-                        chat_id=chat_id,
-                        photo=data["photo"],
-                        caption=data["text"]
-                    )
-                else:
-                    await app.bot.send_message(
-                        chat_id=chat_id,
-                        text=data["text"]
-                    )
-
-                print(f"✅ Sent to {chat_id}")
-
-            except Exception as e:
-                print("❌ ERROR:", e)
-
-            await asyncio.sleep(POST_DELAY)
-
-        else:
+        if not task_queue:
             await asyncio.sleep(5)
+            continue
+
+        data = task_queue.popleft()
+
+        chat_id = TARGET_CHATS[channel_index]
+        channel_index = (channel_index + 1) % len(TARGET_CHATS)
+
+        try:
+            if data["photo"]:
+                await app.bot.send_photo(
+                    chat_id=chat_id,
+                    photo=data["photo"],
+                    caption=data["text"]
+                )
+            else:
+                await app.bot.send_message(
+                    chat_id=chat_id,
+                    text=data["text"]
+                )
+
+            print(f"✅ Sent → {chat_id}")
+
+        except Exception as e:
+            import traceback
+            print("❌ ERROR:", e)
+            traceback.print_exc()
+
+        await asyncio.sleep(POST_DELAY)
 
 
 # 📩 Handler
@@ -99,11 +101,9 @@ async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not user or user.id != OWNER_ID:
         return
 
-    text = message.text or message.caption
-    if not text:
-        return
-
+    text = message.text or message.caption or ""
     urls = re.findall(r'(https?://\S+)', text)
+
     if not urls:
         return
 
@@ -120,20 +120,21 @@ async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 # 🚀 Main
-async def main():
+def main():
     app = ApplicationBuilder().token(BOT_TOKEN).build()
 
     app.add_handler(MessageHandler(filters.TEXT | filters.PHOTO, handle))
 
-    # 🔥 background worker start
-    asyncio.create_task(worker(app))
+    # worker start after loop
+    async def on_start(app):
+        asyncio.create_task(worker(app))
+
+    app.post_init = on_start
 
     print("🚀 Bot running...")
-    await app.run_polling()
+    app.run_polling()
 
 
-# 🌐 Start Flask thread
+# ▶️ Start
 Thread(target=run_web).start()
-
-# ▶️ Run bot
-asyncio.run(main())
+main()

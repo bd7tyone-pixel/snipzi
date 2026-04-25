@@ -20,7 +20,7 @@ from telegram.ext import (
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 
 # 🔐 Login password
-PASSWORD = "12345"
+PASSWORD = "115772"
 
 # 📢 Target channels
 TARGET_CHATS = [
@@ -78,9 +78,11 @@ async def login(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
 
     if not context.args:
+
         await update.message.reply_text(
             "❌ Use:\n/login password"
         )
+
         return
 
     if context.args[0] == PASSWORD:
@@ -109,7 +111,7 @@ async def logout(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "🔒 Logged out!"
     )
 
-async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def start_mode(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     user_id = update.effective_user.id
 
@@ -138,7 +140,7 @@ async def footer_edit(update: Update, context: ContextTypes.DEFAULT_TYPE):
     USER_MODE[user_id] = "footer_wait"
 
 # =========================
-# MESSAGE HANDLER
+# MAIN MESSAGE HANDLER
 # =========================
 
 async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -148,16 +150,21 @@ async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not message:
         return
 
+    # only private chat
     if message.chat.type != "private":
         return
 
     user_id = update.effective_user.id
 
-    # ❌ ignore non logged users
+    # only logged users
     if user_id not in LOGGED_USERS:
         return
 
-    text = message.text or message.caption or ""
+    text = (
+        message.text
+        or message.caption
+        or ""
+    )
 
     # =========================
     # FOOTER EDIT MODE
@@ -223,7 +230,7 @@ async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         try:
 
-            # photo post
+            # PHOTO
             if message.photo:
 
                 await context.bot.send_photo(
@@ -232,7 +239,25 @@ async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     caption=text
                 )
 
-            # text post
+            # VIDEO
+            elif message.video:
+
+                await context.bot.send_video(
+                    chat_id=chat_id,
+                    video=message.video.file_id,
+                    caption=text
+                )
+
+            # DOCUMENT
+            elif message.document:
+
+                await context.bot.send_document(
+                    chat_id=chat_id,
+                    document=message.document.file_id,
+                    caption=text
+                )
+
+            # TEXT
             else:
 
                 await context.bot.send_message(
@@ -270,13 +295,13 @@ def main():
     # commands
     app.add_handler(CommandHandler("login", login))
     app.add_handler(CommandHandler("logout", logout))
-    app.add_handler(CommandHandler("start", start))
+    app.add_handler(CommandHandler("on", start_mode))
     app.add_handler(CommandHandler("footer_edit", footer_edit))
 
-    # messages
+    # all messages/media
     app.add_handler(
         MessageHandler(
-            filters.TEXT | filters.PHOTO,
+            filters.ALL,
             handle
         )
     )

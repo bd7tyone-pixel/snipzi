@@ -1,18 +1,28 @@
 import re
 import os
-import asyncio
 import base64
-from collections import deque
 from threading import Thread
 from flask import Flask
+
 from telegram import Update
-from telegram.ext import ApplicationBuilder, MessageHandler, filters, ContextTypes
+from telegram.ext import (
+    ApplicationBuilder,
+    MessageHandler,
+    CommandHandler,
+    filters,
+    ContextTypes
+)
 
-# 🔑 ENV
+# =========================
+# CONFIG
+# =========================
+
 BOT_TOKEN = os.getenv("BOT_TOKEN")
-OWNER_ID = 8291579707
 
-# 📢 Channels
+# 🔐 Login password
+PASSWORD = "12345"
+
+# 📢 Target channels
 TARGET_CHATS = [
     -1003562574974,
     -1003904302343,
@@ -29,16 +39,21 @@ TARGET_CHATS = [
     -1003871435498
 ]
 
-POST_DELAY = 60
+# =========================
+# RUNTIME MEMORY
+# =========================
 
-# 🔁 Queue
-task_queue = deque()
-channel_index = 0
+LOGGED_USERS = set()
+USER_MODE = {}
+USER_FOOTER = {}
 
-# 🌐 Flask (keep alive)
+# =========================
+# FLASK KEEP ALIVE
+# =========================
+
 app_flask = Flask(__name__)
 
-@app_flask.route('/')
+@app_flask.route("/")
 def home():
     return "Bot is running!"
 
@@ -46,95 +61,234 @@ def run_web():
     port = int(os.environ.get("PORT", 10000))
     app_flask.run(host="0.0.0.0", port=port)
 
+# =========================
+# SAFELINK
+# =========================
 
-# 🔗 Safelink
 def generate_safelink(url):
     encoded = base64.b64encode(url.encode()).decode()
     return f"https://bdtyone.blogspot.com/?url={encoded}"
 
+# =========================
+# COMMANDS
+# =========================
 
-# 🧠 Worker
-async def worker(app):
-    global channel_index
+async def login(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
-    while True:
-        if not task_queue:
-            await asyncio.sleep(5)
-            continue
+    user_id = update.effective_user.id
 
-        data = task_queue.popleft()
+    if not context.args:
+        await update.message.reply_text(
+            "❌ Use:\n/login password"
+        )
+        return
 
-        chat_id = TARGET_CHATS[channel_index]
-        channel_index = (channel_index + 1) % len(TARGET_CHATS)
+    if context.args[0] == PASSWORD:
+
+        LOGGED_USERS.add(user_id)
+
+        await update.message.reply_text(
+            "✅ Login successful!"
+        )
+
+    else:
+
+        await update.message.reply_text(
+            "❌ Wrong password!"
+        )
+
+async def logout(update: Update, context: ContextTypes.DEFAULT_TYPE):
+
+    user_id = update.effective_user.id
+
+    LOGGED_USERS.discard(user_id)
+
+    USER_MODE[user_id] = False
+
+    await update.message.reply_text(
+        "🔒 Logged out!"
+    )
+
+async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+
+    user_id = update.effective_user.id
+
+    if user_id not in LOGGED_USERS:
+        return
+
+    USER_MODE[user_id] = True
+
+    await update.message.reply_text(
+        "🚀 Safelink mode ON!\n\nNow send any post/link."
+    )
+
+async def footer_edit(update: Update, context: ContextTypes.DEFAULT_TYPE):
+
+    user_id = update.effective_user.id
+
+    if user_id not in LOGGED_USERS:
+        return
+
+    current = USER_FOOTER.get(user_id, "No footer set")
+
+    await update.message.reply_text(
+        f"📌 Current footer:\n\n{current}\n\nSend new footer now:"
+    )
+
+    USER_MODE[user_id] = "footer_wait"
+
+# =========================
+# MESSAGE HANDLER
+# =========================
+
+async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
+
+    message = update.message
+
+    if not message:
+        return
+
+    if message.chat.type != "private":
+        return
+
+    user_id = update.effective_user.id
+
+    # ❌ ignore non logged users
+    if user_id not in LOGGED_USERS:
+        return
+
+    text = message.text or message.caption or ""
+
+    # =========================
+    # FOOTER EDIT MODE
+    # =========================
+
+    if USER_MODE.get(user_id) == "footer_wait":
+
+        USER_FOOTER[user_id] = text
+
+        USER_MODE[user_id] = True
+
+        await message.reply_text(
+            "✅ Footer updated successfully!"
+        )
+
+        return
+
+    # =========================
+    # SAFELINK MODE CHECK
+    # =========================
+
+    if not USER_MODE.get(user_id):
+        return
+
+    # =========================
+    # FIND URLS
+    # =========================
+
+    urls = re.findall(r'(https?://\S+)', text)
+
+    if not urls:
+
+        await message.reply_text(
+            "❌ No link found!"
+        )
+
+        return
+
+    # replace all links
+    for url in urls:
+
+        safe = generate_safelink(url)
+
+        text = text.replace(url, safe)
+
+    # =========================
+    # ADD FOOTER
+    # =========================
+
+    footer = USER_FOOTER.get(user_id, "")
+
+    if footer:
+        text += f"\n\n{footer}"
+
+    # =========================
+    # SEND TO ALL CHANNELS
+    # =========================
+
+    success = 0
+    failed = 0
+
+    for chat_id in TARGET_CHATS:
 
         try:
-            if data["photo"]:
-                await app.bot.send_photo(
+
+            # photo post
+            if message.photo:
+
+                await context.bot.send_photo(
                     chat_id=chat_id,
-                    photo=data["photo"],
-                    caption=data["text"]
+                    photo=message.photo[-1].file_id,
+                    caption=text
                 )
+
+            # text post
             else:
-                await app.bot.send_message(
+
+                await context.bot.send_message(
                     chat_id=chat_id,
-                    text=data["text"]
+                    text=text
                 )
+
+            success += 1
 
             print(f"✅ Sent → {chat_id}")
 
         except Exception as e:
-            import traceback
-            print("❌ ERROR:", e)
-            traceback.print_exc()
 
-        await asyncio.sleep(POST_DELAY)
+            failed += 1
 
+            print(f"❌ Failed → {chat_id}")
+            print(e)
 
-# 📩 Handler
-async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    message = update.message
+    # =========================
+    # REPORT
+    # =========================
 
-    if not message or message.chat.type != "private":
-        return
+    await message.reply_text(
+        f"✅ Sent: {success}\n❌ Failed: {failed}"
+    )
 
-    user = update.effective_user
-    if not user or user.id != OWNER_ID:
-        return
+# =========================
+# MAIN
+# =========================
 
-    text = message.text or message.caption or ""
-    urls = re.findall(r'(https?://\S+)', text)
-
-    if not urls:
-        return
-
-    for url in urls:
-        safe = generate_safelink(url)
-        new_text = text.replace(url, safe)
-
-        task_queue.append({
-            "text": new_text,
-            "photo": message.photo[-1].file_id if message.photo else None
-        })
-
-    await message.reply_text(f"✅ {len(urls)} link queued!")
-
-
-# 🚀 Main
 def main():
+
     app = ApplicationBuilder().token(BOT_TOKEN).build()
 
-    app.add_handler(MessageHandler(filters.TEXT | filters.PHOTO, handle))
+    # commands
+    app.add_handler(CommandHandler("login", login))
+    app.add_handler(CommandHandler("logout", logout))
+    app.add_handler(CommandHandler("start", start))
+    app.add_handler(CommandHandler("footer_edit", footer_edit))
 
-    # worker start after loop
-    async def on_start(app):
-        asyncio.create_task(worker(app))
-
-    app.post_init = on_start
+    # messages
+    app.add_handler(
+        MessageHandler(
+            filters.TEXT | filters.PHOTO,
+            handle
+        )
+    )
 
     print("🚀 Bot running...")
+
     app.run_polling()
 
+# =========================
+# START
+# =========================
 
-# ▶️ Start
 Thread(target=run_web).start()
+
 main()

@@ -99,6 +99,8 @@ async def login(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "❌ Wrong password!"
         )
 
+# =========================
+
 async def logout(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     user_id = update.effective_user.id
@@ -111,6 +113,8 @@ async def logout(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "🔒 Logged out!"
     )
 
+# =========================
+
 async def start_mode(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     user_id = update.effective_user.id
@@ -121,8 +125,25 @@ async def start_mode(update: Update, context: ContextTypes.DEFAULT_TYPE):
     USER_MODE[user_id] = True
 
     await update.message.reply_text(
-        "🚀 Safelink mode ON!\n\nNow send any post/link."
+        "🚀 Safelink mode ON!\n\nSend any post/link now."
     )
+
+# =========================
+
+async def off_mode(update: Update, context: ContextTypes.DEFAULT_TYPE):
+
+    user_id = update.effective_user.id
+
+    if user_id not in LOGGED_USERS:
+        return
+
+    USER_MODE[user_id] = False
+
+    await update.message.reply_text(
+        "🛑 Safelink mode OFF!"
+    )
+
+# =========================
 
 async def footer_edit(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
@@ -140,6 +161,146 @@ async def footer_edit(update: Update, context: ContextTypes.DEFAULT_TYPE):
     USER_MODE[user_id] = "footer_wait"
 
 # =========================
+
+async def footer_show(update: Update, context: ContextTypes.DEFAULT_TYPE):
+
+    user_id = update.effective_user.id
+
+    if user_id not in LOGGED_USERS:
+        return
+
+    footer = USER_FOOTER.get(user_id, "No footer set")
+
+    await update.message.reply_text(
+        f"📌 Current Footer:\n\n{footer}"
+    )
+
+# =========================
+
+async def status(update: Update, context: ContextTypes.DEFAULT_TYPE):
+
+    user_id = update.effective_user.id
+
+    if user_id not in LOGGED_USERS:
+        return
+
+    mode = USER_MODE.get(user_id)
+
+    if mode == True:
+        mode_text = "🟢 ON"
+    else:
+        mode_text = "🔴 OFF"
+
+    footer = USER_FOOTER.get(user_id, "No footer set")
+
+    text = (
+        f"🤖 Bot Status\n\n"
+        f"Mode: {mode_text}\n"
+        f"Channels: {len(TARGET_CHATS)}\n\n"
+        f"Footer:\n{footer}"
+    )
+
+    await update.message.reply_text(text)
+
+# =========================
+
+async def channels(update: Update, context: ContextTypes.DEFAULT_TYPE):
+
+    user_id = update.effective_user.id
+
+    if user_id not in LOGGED_USERS:
+        return
+
+    text = "📢 Target Channels\n\n"
+
+    for i, chat_id in enumerate(TARGET_CHATS, start=1):
+        text += f"{i}. {chat_id}\n"
+
+    await update.message.reply_text(text)
+
+# =========================
+
+async def add_channel(update: Update, context: ContextTypes.DEFAULT_TYPE):
+
+    user_id = update.effective_user.id
+
+    if user_id not in LOGGED_USERS:
+        return
+
+    if not context.args:
+
+        await update.message.reply_text(
+            "❌ Use:\n/add_channel -100xxxxxxxxxx"
+        )
+
+        return
+
+    try:
+
+        chat_id = int(context.args[0])
+
+        if chat_id in TARGET_CHATS:
+
+            await update.message.reply_text(
+                "⚠️ Channel already added!"
+            )
+
+            return
+
+        TARGET_CHATS.append(chat_id)
+
+        await update.message.reply_text(
+            f"✅ Channel added:\n{chat_id}"
+        )
+
+    except:
+
+        await update.message.reply_text(
+            "❌ Invalid channel ID!"
+        )
+
+# =========================
+
+async def remove_channel(update: Update, context: ContextTypes.DEFAULT_TYPE):
+
+    user_id = update.effective_user.id
+
+    if user_id not in LOGGED_USERS:
+        return
+
+    if not context.args:
+
+        await update.message.reply_text(
+            "❌ Use:\n/remove_channel -100xxxxxxxxxx"
+        )
+
+        return
+
+    try:
+
+        chat_id = int(context.args[0])
+
+        if chat_id not in TARGET_CHATS:
+
+            await update.message.reply_text(
+                "⚠️ Channel not found!"
+            )
+
+            return
+
+        TARGET_CHATS.remove(chat_id)
+
+        await update.message.reply_text(
+            f"✅ Channel removed:\n{chat_id}"
+        )
+
+    except:
+
+        await update.message.reply_text(
+            "❌ Invalid channel ID!"
+        )
+
+# =========================
 # MAIN MESSAGE HANDLER
 # =========================
 
@@ -150,7 +311,7 @@ async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not message:
         return
 
-    # only private chat
+    # private only
     if message.chat.type != "private":
         return
 
@@ -183,7 +344,7 @@ async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     # =========================
-    # SAFELINK MODE CHECK
+    # MODE CHECK
     # =========================
 
     if not USER_MODE.get(user_id):
@@ -193,7 +354,10 @@ async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # FIND URLS
     # =========================
 
-    urls = re.findall(r'(https?://\S+)', text)
+    urls = re.findall(
+        r'https?://[^\s]+',
+        text
+    )
 
     if not urls:
 
@@ -203,7 +367,7 @@ async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         return
 
-    # replace all links
+    # replace urls
     for url in urls:
 
         safe = generate_safelink(url)
@@ -211,7 +375,7 @@ async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
         text = text.replace(url, safe)
 
     # =========================
-    # ADD FOOTER
+    # FOOTER
     # =========================
 
     footer = USER_FOOTER.get(user_id, "")
@@ -296,9 +460,15 @@ def main():
     app.add_handler(CommandHandler("login", login))
     app.add_handler(CommandHandler("logout", logout))
     app.add_handler(CommandHandler("on", start_mode))
+    app.add_handler(CommandHandler("off", off_mode))
     app.add_handler(CommandHandler("footer_edit", footer_edit))
+    app.add_handler(CommandHandler("footer_show", footer_show))
+    app.add_handler(CommandHandler("status", status))
+    app.add_handler(CommandHandler("channels", channels))
+    app.add_handler(CommandHandler("add_channel", add_channel))
+    app.add_handler(CommandHandler("remove_channel", remove_channel))
 
-    # all messages/media
+    # media/text handler
     app.add_handler(
         MessageHandler(
             filters.ALL,
@@ -308,7 +478,9 @@ def main():
 
     print("🚀 Bot running...")
 
-    app.run_polling()
+    app.run_polling(
+        drop_pending_updates=True
+    )
 
 # =========================
 # START
